@@ -4,9 +4,9 @@
 namespace ImGui
 {
 
-extern float RoundScalarWithFormatFloat(const char* format, ImGuiDataType data_type, float v);
-
-extern float SliderCalcRatioFromValueFloat(ImGuiDataType data_type, float v, float v_min, float v_max, float power, float linear_zero_pos);
+extern template IMGUI_API float RoundScalarWithFormatT<float>(const char* format, ImGuiDataType data_type, float v);
+extern template IMGUI_API float ScaleRatioFromValueT<float, float, float>(ImGuiDataType data_type, float v, float v_min, float v_max, float logarithmic_zero_epsilon, float zero_deadzone_size);
+extern template IMGUI_API float ScaleValueFromRatioT<float, float, float>(ImGuiDataType data_type, float t, float v_min, float v_max, float logarithmic_zero_epsilon, float zero_deadzone_size);
 
 // ~80% common code with ImGui::SliderBehavior
 bool RangeSliderBehavior(const ImRect& frame_bb, ImGuiID id, float* v1, float* v2, float v_min, float v_max, float power, int decimal_precision, ImGuiSliderFlags flags)
@@ -18,7 +18,7 @@ bool RangeSliderBehavior(const ImRect& frame_bb, ImGuiID id, float* v1, float* v
     // Draw frame
     RenderFrame(frame_bb.Min, frame_bb.Max, GetColorU32(ImGuiCol_FrameBg), true, style.FrameRounding);
 
-    const bool is_non_linear = (power < 1.0f-0.00001f) || (power > 1.0f+0.00001f);
+    const bool is_logarithmic = (power < 1.0f - 0.00001f) || (power > 1.0f + 0.00001f);
     const bool is_horizontal = (flags & ImGuiSliderFlags_Vertical) == 0;
 
     const float grab_padding = 2.0f;
@@ -32,19 +32,12 @@ bool RangeSliderBehavior(const ImRect& frame_bb, ImGuiID id, float* v1, float* v
     const float slider_usable_pos_min = (is_horizontal ? frame_bb.Min.x : frame_bb.Min.y) + grab_padding + grab_sz*0.5f;
     const float slider_usable_pos_max = (is_horizontal ? frame_bb.Max.x : frame_bb.Max.y) - grab_padding - grab_sz*0.5f;
 
-    // For logarithmic sliders that cross over sign boundary we want the exponential increase to be symmetric around 0.0f
-    float linear_zero_pos = 0.0f;   // 0.0->1.0f
-    if (v_min * v_max < 0.0f)
+    float logarithmic_zero_epsilon = 0.0f;
+    float zero_deadzone_halfsize = 0.0f;
+    if (is_logarithmic)
     {
-        // Different sign
-        const float linear_dist_min_to_0 = powf(fabsf(0.0f - v_min), 1.0f/power);
-        const float linear_dist_max_to_0 = powf(fabsf(v_max - 0.0f), 1.0f/power);
-        linear_zero_pos = linear_dist_min_to_0 / (linear_dist_min_to_0+linear_dist_max_to_0);
-    }
-    else
-    {
-        // Same sign
-        linear_zero_pos = v_min < 0.0f ? 1.0f : 0.0f;
+        logarithmic_zero_epsilon = ImPow(0.1f, (float)ImMax(decimal_precision, 1));
+        zero_deadzone_halfsize = (style.LogSliderDeadzone * 0.5f) / ImMax(slider_usable_sz, 1.0f);
     }
 
     // Process clicking on the slider
@@ -58,40 +51,13 @@ bool RangeSliderBehavior(const ImRect& frame_bb, ImGuiID id, float* v1, float* v
             if (!is_horizontal)
                 clicked_t = 1.0f - clicked_t;
 
-            float new_value;
-            if (is_non_linear)
-            {
-                // Account for logarithmic scale on both sides of the zero
-                if (clicked_t < linear_zero_pos)
-                {
-                    // Negative: rescale to the negative range before powering
-                    float a = 1.0f - (clicked_t / linear_zero_pos);
-                    a = powf(a, power);
-                    new_value = ImLerp(ImMin(v_max,0.0f), v_min, a);
-                }
-                else
-                {
-                    // Positive: rescale to the positive range before powering
-                    float a;
-                    if (fabsf(linear_zero_pos - 1.0f) > 1.e-6f)
-                        a = (clicked_t - linear_zero_pos) / (1.0f - linear_zero_pos);
-                    else
-                        a = clicked_t;
-                    a = powf(a, power);
-                    new_value = ImLerp(ImMax(v_min,0.0f), v_max, a);
-                }
-            }
-            else
-            {
-                // Linear slider
-                new_value = ImLerp(v_min, v_max, clicked_t);
-            }
+            float new_value = ScaleValueFromRatioT<float, float, float>(ImGuiDataType_Float, clicked_t, v_min, v_max, logarithmic_zero_epsilon, zero_deadzone_halfsize);
 
             char fmt[64];
             snprintf(fmt, 64, "%%.%df", decimal_precision);
 
             // Round past decimal precision
-            new_value = RoundScalarWithFormatFloat(fmt, ImGuiDataType_Float, new_value);
+            new_value = RoundScalarWithFormatT<float>(fmt, ImGuiDataType_Float, new_value);
             if (*v1 != new_value || *v2 != new_value)
             {
                 if (fabsf(*v1 - new_value) < fabsf(*v2 - new_value))
@@ -112,7 +78,7 @@ bool RangeSliderBehavior(const ImRect& frame_bb, ImGuiID id, float* v1, float* v
     }
 
     // Calculate slider grab positioning
-    float grab_t = SliderCalcRatioFromValueFloat(ImGuiDataType_Float, *v1, v_min, v_max, power, linear_zero_pos);
+    float grab_t = ScaleRatioFromValueT<float, float, float>(ImGuiDataType_Float, *v1, v_min, v_max, logarithmic_zero_epsilon, zero_deadzone_halfsize);
 
     // Draw
     if (!is_horizontal)
@@ -126,7 +92,7 @@ bool RangeSliderBehavior(const ImRect& frame_bb, ImGuiID id, float* v1, float* v
     window->DrawList->AddRectFilled(grab_bb1.Min, grab_bb1.Max, GetColorU32(g.ActiveId == id ? ImGuiCol_SliderGrabActive : ImGuiCol_SliderGrab), style.GrabRounding);
 
     // Calculate slider grab positioning
-    grab_t = SliderCalcRatioFromValueFloat(ImGuiDataType_Float, *v2, v_min, v_max, power, linear_zero_pos);
+    grab_t = ScaleRatioFromValueT<float, float, float>(ImGuiDataType_Float, *v2, v_min, v_max, logarithmic_zero_epsilon, zero_deadzone_halfsize);
 
     // Draw
     if (!is_horizontal)

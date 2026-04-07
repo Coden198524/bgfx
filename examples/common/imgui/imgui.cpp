@@ -8,6 +8,7 @@
 #include <bx/allocator.h>
 #include <bx/math.h>
 #include <bx/timer.h>
+#include <cstdio>
 #include <dear-imgui/imgui.h>
 #include <dear-imgui/imgui_internal.h>
 
@@ -62,6 +63,57 @@ static FontRangeMerge s_fontRangeMerge[] =
 
 static void* memAlloc(size_t _size, void* _userData);
 static void memFree(void* _ptr, void* _userData);
+
+static void imguiProbeLog(const char* _message)
+{
+	FILE* fp = std::fopen("imgui_probe.log", "a");
+	if (NULL == fp)
+	{
+		return;
+	}
+
+	std::fprintf(fp, "%s\n", _message);
+	std::fclose(fp);
+}
+
+static bgfx::ShaderHandle createEmbeddedShaderCopy(
+	  const bgfx::EmbeddedShader* _es
+	, bgfx::RendererType::Enum _type
+	, const char* _name
+	)
+{
+	for (const bgfx::EmbeddedShader* es = _es; NULL != es->name; ++es)
+	{
+		if (0 != bx::strCmp(_name, es->name) )
+		{
+			continue;
+		}
+
+		for (const bgfx::EmbeddedShader::Data* esd = es->data; bgfx::RendererType::Count != esd->type; ++esd)
+		{
+			if (_type == esd->type
+			&&  1 < esd->size)
+			{
+				imguiProbeLog("bgfx imgui create: copying embedded shader bytes.");
+				const bgfx::Memory* mem = bgfx::copy(esd->data, esd->size);
+				imguiProbeLog("bgfx imgui create: embedded shader bytes copied.");
+				imguiProbeLog("bgfx imgui create: calling bgfx::createShader.");
+				bgfx::ShaderHandle handle = bgfx::createShader(mem);
+				imguiProbeLog("bgfx imgui create: bgfx::createShader returned.");
+				if (bgfx::isValid(handle) )
+				{
+					bgfx::setName(handle, _name);
+				}
+
+				return handle;
+			}
+		}
+
+		break;
+	}
+
+	return BGFX_INVALID_HANDLE;
+}
 
 struct OcornutImguiContext
 {
@@ -407,18 +459,32 @@ struct OcornutImguiContext
 #endif // USE_ENTRY
 
 		bgfx::RendererType::Enum type = bgfx::getRendererType();
+		imguiProbeLog("bgfx imgui create: creating main shader program.");
+		bgfx::ShaderHandle vsh = createEmbeddedShaderCopy(s_embeddedShaders, type, "vs_ocornut_imgui");
+		imguiProbeLog(bgfx::isValid(vsh) ? "bgfx imgui create: vs_ocornut_imgui created." : "bgfx imgui create: vs_ocornut_imgui invalid.");
+		bgfx::ShaderHandle fsh = createEmbeddedShaderCopy(s_embeddedShaders, type, "fs_ocornut_imgui");
+		imguiProbeLog(bgfx::isValid(fsh) ? "bgfx imgui create: fs_ocornut_imgui created." : "bgfx imgui create: fs_ocornut_imgui invalid.");
 		m_program = bgfx::createProgram(
-			  bgfx::createEmbeddedShader(s_embeddedShaders, type, "vs_ocornut_imgui")
-			, bgfx::createEmbeddedShader(s_embeddedShaders, type, "fs_ocornut_imgui")
+			  vsh
+			, fsh
 			, true
 			);
+		imguiProbeLog("bgfx imgui create: main shader program created.");
 
+		imguiProbeLog("bgfx imgui create: creating image lod uniform.");
 		u_imageLodEnabled = bgfx::createUniform("u_imageLodEnabled", bgfx::UniformType::Vec4);
+		imguiProbeLog("bgfx imgui create: u_imageLodEnabled created.");
+		imguiProbeLog("bgfx imgui create: creating image shader program.");
+		bgfx::ShaderHandle imageVsh = createEmbeddedShaderCopy(s_embeddedShaders, type, "vs_imgui_image");
+		imguiProbeLog(bgfx::isValid(imageVsh) ? "bgfx imgui create: vs_imgui_image created." : "bgfx imgui create: vs_imgui_image invalid.");
+		bgfx::ShaderHandle imageFsh = createEmbeddedShaderCopy(s_embeddedShaders, type, "fs_imgui_image");
+		imguiProbeLog(bgfx::isValid(imageFsh) ? "bgfx imgui create: fs_imgui_image created." : "bgfx imgui create: fs_imgui_image invalid.");
 		m_imageProgram = bgfx::createProgram(
-			  bgfx::createEmbeddedShader(s_embeddedShaders, type, "vs_imgui_image")
-			, bgfx::createEmbeddedShader(s_embeddedShaders, type, "fs_imgui_image")
+			  imageVsh
+			, imageFsh
 			, true
 			);
+		imguiProbeLog("bgfx imgui create: image shader program created.");
 
 		m_layout
 			.begin()
@@ -428,8 +494,10 @@ struct OcornutImguiContext
 			.end();
 
 		s_tex = bgfx::createUniform("s_tex", bgfx::UniformType::Sampler);
+		imguiProbeLog("bgfx imgui create: sampler uniform created.");
 
 		{
+			imguiProbeLog("bgfx imgui create: building font atlas.");
 			ImFontConfig config;
 			config.FontDataOwnedByAtlas = false;
 			config.MergeMode = false;
@@ -453,10 +521,11 @@ struct OcornutImguiContext
 					);
 			}
 		}
+		imguiProbeLog("bgfx imgui create: font atlas ready.");
 
 		ImGuizmo::Create();
+		imguiProbeLog("bgfx imgui create: ImGuizmo created.");
 
-		ImGui::InitDockContext();
 	}
 
 	void destroy()
@@ -474,7 +543,6 @@ struct OcornutImguiContext
 			}
 		}
 
-		ImGui::ShutdownDockContext();
 		ImGui::DestroyContext(m_imgui);
 
 		bgfx::destroy(s_tex);

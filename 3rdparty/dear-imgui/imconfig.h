@@ -6,7 +6,9 @@
 
 #pragma once
 
+#if !defined(LORD_IMGUI_ENABLE_OBSOLETE_FUNCTIONS)
 #define IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+#endif
 #define IMGUI_DISABLE_OBSOLETE_KEYIO
 #define IMGUI_DISABLE_DEFAULT_ALLOCATORS
 
@@ -16,22 +18,33 @@
 //#define ImVector  MyVector
 
 //---- Define assertion handler. Defaults to calling assert().
+#if !defined(LORD_IMGUI_NO_BX_ASSERT)
 #include <bx/bx.h>
 #define IM_ASSERT(_EXPR) BX_ASSERT(_EXPR, "")
+#else
+#include <assert.h>
+#define IM_ASSERT(_EXPR) assert(_EXPR)
+#endif
 
 //---- Define attributes of all API symbols declarations, e.g. for DLL under Windows.
 //#define IMGUI_API __declspec( dllexport )
 //#define IMGUI_API __declspec( dllimport )
 
 //---- Don't implement default handlers for Windows (so as not to link with OpenClipboard() and others Win32 functions)
+#if !defined(LORD_IMGUI_ENABLE_STB_IMPLEMENTATION)
 #define IMGUI_DISABLE_STB_RECT_PACK_IMPLEMENTATION
 #define IMGUI_DISABLE_STB_TRUETYPE_IMPLEMENTATION
+#endif
 
 //---- Include imgui_user.inl at the end of imgui.cpp so you can include code that extends ImGui using its private data/functions.
+#if !defined(LORD_IMGUI_DISABLE_USER_EXTENSIONS)
 #define IMGUI_INCLUDE_IMGUI_USER_INL
+#endif
 
 //---- Include imgui_user.h at the end of imgui.h
+#if !defined(LORD_IMGUI_DISABLE_USER_EXTENSIONS)
 #define IMGUI_INCLUDE_IMGUI_USER_H
+#endif
 
 //---- Don't implement default handlers for Windows (so as not to link with OpenClipboard() and others Win32 functions)
 #define IMGUI_DISABLE_WIN32_DEFAULT_CLIPBOARD_FUNCTIONS
@@ -64,4 +77,3 @@ namespace ImGui
     void    Value(const char* prefix, const MyVec4& v, const char* float_format = NULL);
 }
 */
-
